@@ -58,7 +58,7 @@ fn outputter(marker: &[u8; 1], input: &mut dyn Read) {
                 handle.write(vec.as_slice()).unwrap();
                 handle.flush().unwrap();
             }
-            vec = Vec::new();
+            vec.truncate(0);
         }
     }
 }
