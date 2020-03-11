@@ -27,9 +27,9 @@ fn outputter(marker: &[u8; 1], input: &mut dyn Read) {
     let output = io::stderr();
     let mut vec = Vec::new();
     let mut start = Utc::now();
+    let mut buf = [0; 1];
 
     loop {
-        let mut buf = [0; 1];
         let rsize = input.read(&mut buf).expect("can't read stdout");
         if rsize == 0 {
             if vec.len() != 0 {
