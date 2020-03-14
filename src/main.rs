@@ -16,21 +16,25 @@
 extern crate scoped_threadpool;
 extern crate chrono;
 
+use nix::sys::wait::waitpid;
+use nix::sys::wait::WaitStatus;
+use nix::unistd::Pid;
 use std::process::{Command, Stdio};
 use std::io::{self, Read, Write};
 use std::vec::Vec;
 use std::env;
-use chrono::Utc;
+use chrono::Local;
 use scoped_threadpool::Pool;
 
 fn outputter(marker: &[u8; 1], input: &mut dyn Read) {
     let output = io::stderr();
     let mut vec = Vec::new();
-    let mut start = Utc::now();
+    let mut start = Local::now();
     let mut buf = [0; 1];
+    let mut rsize: usize;
 
     loop {
-        let rsize = input.read(&mut buf).expect("can't read stdout");
+        rsize = input.read(&mut buf).expect("can't read stdout");
         if rsize == 0 {
             if vec.len() != 0 {
                 let mut handle = output.lock();
@@ -45,7 +49,7 @@ fn outputter(marker: &[u8; 1], input: &mut dyn Read) {
             break;
         }
         if vec.len() == 0 {
-            start = Utc::now();
+            start = Local::now();
         }
         vec.push(buf[0]);
         if buf[0] == 10 {
@@ -77,9 +81,10 @@ fn main() {
         .spawn()
         .expect("failed to spawn command");
 
+    let child_pid = Pid::from_raw(child.id() as i32);
     let child_stdout = child.stdout.as_mut().unwrap();
     let child_stderr = child.stderr.as_mut().unwrap();
-    let mut pool = Pool::new(2);
+    let mut pool = Pool::new(3);
 
     pool.scoped(|scope| {
         scope.execute(move || {
@@ -88,7 +93,37 @@ fn main() {
         scope.execute(move || {
             outputter(b"E", child_stderr);
         });
+        scope.execute(move || {
+            loop {
+                match waitpid(Pid::from_raw(-1), None) {
+                    Ok(status) => match status {
+                        WaitStatus::Exited(pid, code) => {
+                            let now = Local::now();
+                            println!("X {} {:?} exited with code {:?}", now.to_rfc3339(), pid, code);
+                            if pid == child_pid {
+                                break;
+                            }
+                        },
+                        WaitStatus::Signaled(pid, signal, _coredumped) => {
+                            let now = Local::now();
+                            println!("X {} {:?} exited with signal {:?}", now.to_rfc3339(), pid, signal);
+                            if pid == child_pid {
+                                break;
+                            }
+                        },
+                        _ => {
+                            let now = Local::now();
+                            println!("X {} child status {:?}", now.to_rfc3339(), status);
+                        }
+                    },
+                    Err(error) => {
+                        let now = Local::now();
+                        println!("X {} child error {:?}", now.to_rfc3339(), error);
+                    }
+                }
+            }
+        });
     });
 
-    child.wait().unwrap();
+    //child.wait().unwrap();
 }
